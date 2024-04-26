@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +11,23 @@ import (
 )
 
 func main() {
-	file, err := os.Open("./test.m")
+	args := os.Args
+
+	if len(args) != 2 {
+		err := errors.New("incorrect number of arguments.\r\nUsage: main.go <input_file>")
+		panic(err)
+	}
+
+	path := args[1]
+
+	stat, err := os.Stat(path)
+
+	if stat == nil || err != nil {
+		err := errors.New("Input file does not exist.")
+		panic(err)
+	}
+
+	file, err := os.Open(path)
 	defer file.Close()
 
 	if err != nil {
