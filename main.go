@@ -23,7 +23,7 @@ func main() {
 	stat, err := os.Stat(path)
 
 	if stat == nil || err != nil {
-		err := errors.New("Input file does not exist.")
+		err := errors.New("input file does not exist")
 		panic(err)
 	}
 
@@ -49,7 +49,16 @@ func main() {
 		}
 	}
 
-	tokens := tokenize(string(buf))
+	t := Tokenizer{
+		src: &buf,
+		idx: 0,
+	}
+
+	tokens, err := t.tokenize()
+
+	if err != nil {
+		panic(err)
+	}
 
 	asm := tokensToAsm(tokens)
 
@@ -76,50 +85,6 @@ const (
 type Token struct {
 	Type  TokenType
 	Value *string
-}
-
-func tokenize(str string) []Token {
-	buf := make([]byte, 0)
-
-	tokens := make([]Token, 0)
-
-	i := 0
-
-	for i < len(str) {
-		c := rune(str[i])
-
-		if unicode.IsLetter(c) {
-			for unicode.IsLetter(rune(str[i])) {
-				buf = append(buf, str[i])
-				i++
-			}
-
-			if string(buf) == "return" {
-				token := Token{Type: Return, Value: nil}
-				tokens = append(tokens, token)
-				buf = buf[:0]
-			}
-		} else if unicode.IsNumber(rune(c)) {
-			for unicode.IsNumber(rune(str[i])) {
-				buf = append(buf, str[i])
-				i++
-			}
-
-			val := string(buf)
-			token := Token{Type: IntLiteral, Value: &val}
-			tokens = append(tokens, token)
-			buf = buf[:0]
-		} else if rune(c) == ';' {
-			token := Token{Type: Semi, Value: nil}
-			tokens = append(tokens, token)
-			buf = buf[:0]
-			i++
-		} else {
-			i++
-		}
-	}
-
-	return tokens
 }
 
 func tokensToAsm(tokens []Token) string {
@@ -155,4 +120,104 @@ func write(str string) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+type Tokenizer struct {
+	src *[]byte
+	idx int
+}
+
+func (t *Tokenizer) peak() (*uint8, error) {
+	if t.idx >= len(*t.src) {
+		return nil, errors.New("out of bounds")
+	}
+
+	char := (*t.src)[t.idx]
+
+	return &char, nil
+}
+
+func (t *Tokenizer) consume() *uint8 {
+	char := (*t.src)[t.idx]
+
+	t.idx++
+
+	return &char
+}
+
+func (t *Tokenizer) tokenize() ([]Token, error) {
+	buf := make([]byte, 0)
+
+	tokens := make([]Token, 0)
+
+	for {
+		p, err := t.peak()
+
+		if err != nil {
+			break
+		}
+
+		if unicode.IsLetter(rune(*p)) {
+			for {
+				p, err = t.peak()
+
+				if err != nil {
+					break
+				}
+
+				if !unicode.IsLetter(rune(*p)) {
+					break
+				}
+
+				c := t.consume()
+				buf = append(buf, *c)
+			}
+
+			if string(buf) == "return" {
+				token := Token{Type: Return, Value: nil}
+				tokens = append(tokens, token)
+				buf = buf[:0]
+
+				continue
+			} else {
+				return nil, errors.New("Invalid token: " + string(buf))
+			}
+		} else if unicode.IsNumber(rune(*p)) {
+			for {
+				p, err = t.peak()
+
+				if err != nil {
+					break
+				}
+
+				if !unicode.IsNumber(rune(*p)) {
+					break
+				}
+
+				c := t.consume()
+				buf = append(buf, *c)
+			}
+
+			str := string(buf)
+			token := Token{Type: IntLiteral, Value: &str}
+			tokens = append(tokens, token)
+			buf = buf[:0]
+			continue
+		} else if rune(*p) == ';' {
+			t.consume()
+			token := Token{Type: Semi, Value: nil}
+			tokens = append(tokens, token)
+			buf = buf[:0]
+			continue
+		} else if unicode.IsSpace(rune(*p)) {
+			t.consume()
+			continue
+		} else if *p == 0 {
+			break
+		} else {
+			return nil, errors.New(fmt.Sprintf("invalid character at position %d: %c", t.idx, rune(*p)))
+		}
+	}
+
+	return tokens, nil
 }
