@@ -60,7 +60,19 @@ func main() {
 		panic(err)
 	}
 
-	asm := tokensToAsm(tokens)
+	parser := Parser{
+		tokens: &tokens,
+		idx:    0,
+	}
+
+	tree, err := parser.parse()
+
+	if err != nil {
+		panic(err)
+	}
+
+	generator := Generator{root: tree}
+	asm := generator.generate()
 
 	write(asm)
 
@@ -87,24 +99,7 @@ type Token struct {
 	Value *string
 }
 
-func tokensToAsm(tokens []Token) string {
-	asm := "section .text\r\n\tglobal _start\r\n\r\n_start:\r\n"
-
-	for i, token := range tokens {
-		if token.Type == Return {
-			if i+1 < len(tokens) && tokens[i+1].Type == IntLiteral {
-				returnVal := tokens[i+1].Value
-				if i+2 < len(tokens) && tokens[i+2].Type == Semi {
-					asm += "\tmov eax, 1\r\n\tmov ebx, " + *returnVal + "\r\n\tint 80h"
-				}
-			}
-		}
-	}
-
-	return asm
-}
-
-func write(str string) {
+func write(asm *string) {
 	file, err := os.Create("./out.asm")
 	defer file.Close()
 
@@ -115,7 +110,7 @@ func write(str string) {
 	writer := bufio.NewWriter(file)
 	defer writer.Flush()
 
-	_, err = writer.WriteString(str)
+	_, err = writer.WriteString(*asm)
 
 	if err != nil {
 		panic(err)
@@ -220,4 +215,104 @@ func (t *Tokenizer) tokenize() ([]Token, error) {
 	}
 
 	return tokens, nil
+}
+
+type Parser struct {
+	tokens *[]Token
+	idx    int
+}
+
+func (p *Parser) peak() (*Token, error) {
+	if p.idx >= len(*p.tokens) {
+		return nil, errors.New("out of bounds")
+	}
+
+	char := (*p.tokens)[p.idx]
+
+	return &char, nil
+}
+
+func (p *Parser) consume() *Token {
+	token := (*p.tokens)[p.idx]
+
+	p.idx++
+
+	return &token
+}
+
+type NodeReturn struct {
+	expr *NodeExpr
+}
+
+type NodeExpr struct {
+	intLiteral *Token
+}
+
+func (p *Parser) parse() (*NodeReturn, error) {
+	var returnNode *NodeReturn
+
+	for {
+		peak, err := p.peak()
+
+		if err != nil {
+			break
+		}
+
+		if peak.Type == Return {
+			p.consume()
+			expr, err := p.parseExpr()
+
+			if err != nil {
+				return nil, err
+			}
+
+			returnNode = &NodeReturn{expr: expr}
+
+			newPeak, err := p.peak()
+
+			if err != nil {
+				panic(err)
+			}
+
+			if newPeak.Type == Semi {
+				p.consume()
+			} else {
+				return nil, errors.New("invalid expression: '" + *newPeak.Value + "'")
+			}
+		}
+	}
+
+	p.idx = 0
+
+	return returnNode, nil
+}
+
+func (p *Parser) parseExpr() (*NodeExpr, error) {
+	peak, err := p.peak()
+
+	if err != nil {
+		return nil, err
+	}
+
+	if peak.Type == IntLiteral {
+		return &NodeExpr{
+			intLiteral: p.consume(),
+		}, nil
+	} else {
+		return nil, errors.New("invalid expression")
+	}
+}
+
+type Generator struct {
+	root *NodeReturn
+}
+
+func (g *Generator) generate() *string {
+	asm := "section .text\r\n\tglobal _start\r\n\r\n_start:\r\n"
+
+	asm += "\tmov eax, 1\r\n"
+	asm += "\tmov ebx, " + *g.root.expr.intLiteral.Value + "\r\n"
+	asm += "\tint 80h"
+
+	return &asm
 }
